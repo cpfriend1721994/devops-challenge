@@ -1,0 +1,1 @@
+grep "TSLA" transaction-log.txt | sed 's/.*"order_id": "\([^"]*\)".*/\1/' | while read order_id; do curl -s "https://example.com/api/$order_id" >> output.txt; done
