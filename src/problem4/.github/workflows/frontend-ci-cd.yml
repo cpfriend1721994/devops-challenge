@@ -1,0 +1,103 @@
+name: Frontend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/problem4/frontend/**'
+      - 'src/problem4/.github/workflows/frontend-ci-cd.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src/problem4/frontend/**'
+      - 'src/problem4/.github/workflows/frontend-ci-cd.yml'
+
+permissions:
+  id-token: write  # Required for AWS OIDC authentication
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  DEPLOY_ROLE_ARN: ${{ secrets.AWS_FRONTEND_DEPLOY_ROLE_ARN || 'arn:aws:iam::123456789012:role/github-actions-frontend-deploy' }}
+  S3_BUCKET_NAME: ${{ secrets.FRONTEND_S3_BUCKET || 'my-company-trading-frontend' }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DIST_ID || 'E123456EXAMPLE' }}
+
+jobs:
+  ci-build:
+    name: Lint, Test & Build SPA (Bun Runtime)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src/problem4/frontend
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun Runtime
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Code Quality & Lint
+        run: bun run lint
+
+      - name: Unit Tests
+        run: bun test
+
+      - name: Build Optimized Production Bundle
+        run: bun run build
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: src/problem4/frontend/dist
+          retention-days: 7
+
+  cd-deploy:
+    name: Deploy to S3 & Invalidate CloudFront
+    needs: ci-build
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Authenticate to AWS via OIDC (Keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          role-session-name: GitHubActions-FrontendDeploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync Fingerprinted Static Assets (1 Year Immutable Cache)
+        run: |
+          echo "[S3] Syncing immutable static assets with long max-age..."
+          if [ -d "dist/assets" ]; then
+            aws s3 sync dist/assets s3://${{ env.S3_BUCKET_NAME }}/assets \
+              --cache-control "public, max-age=31536000, immutable" \
+              --delete
+          fi
+
+      - name: Sync Remaining HTML/SPA Entrypoints (Zero Cache / Must Revalidate)
+        run: |
+          echo "[S3] Syncing index.html and root documents without caching..."
+          aws s3 cp dist/index.html s3://${{ env.S3_BUCKET_NAME }}/index.html \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --metadata-directive REPLACE
+
+      - name: Invalidate CloudFront Edge Cache
+        run: |
+          echo "[CLOUDFRONT] Invalidating edge cache for distribution ${{ env.CLOUDFRONT_DISTRIBUTION_ID }}..."
+          INVALIDATION_ID=$(aws cloudfront create-invalidation \
+            --distribution-id "${{ env.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*" \
+            --query "Invalidation.Id" \
+            --output text)
+          echo "[SUCCESS] CloudFront Invalidation dispatched. ID: ${INVALIDATION_ID}"

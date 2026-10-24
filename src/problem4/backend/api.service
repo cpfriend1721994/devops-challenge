@@ -1,0 +1,27 @@
+[Unit]
+Description=Trading HTTP API Service (Bun Runtime)
+After=network.target
+
+[Service]
+Type=simple
+User=appuser
+Group=appuser
+WorkingDirectory=/var/www/backend/current
+Environment="PATH=/usr/local/bin:/usr/bin:/home/appuser/.bun/bin:/root/.bun/bin"
+Environment=BUN_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/local/bin/bun run /var/www/backend/current/server.js
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=backend-api
+
+# Security sandbox flags for systemd
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+{
+  "name": "trading-backend-api",
+  "version": "1.0.0",
+  "description": "Production HTTP API for Problem 4 (Bun Runtime)",
+  "main": "server.js",
+  "scripts": {
+    "start": "bun run server.js",
+    "test": "bun test",
+    "lint": "bun build --no-bundle server.js > /dev/null"
+  }
+}

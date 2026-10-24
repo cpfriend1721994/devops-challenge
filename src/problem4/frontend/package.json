@@ -1,0 +1,10 @@
+{
+  "name": "trading-frontend-spa",
+  "version": "1.0.0",
+  "description": "Production Static Single Page Application for Problem 4 (Bun Runtime)",
+  "scripts": {
+    "build": "bun run build.js",
+    "test": "bun test",
+    "lint": "bun build --no-bundle build.js > /dev/null"
+  }
+}
